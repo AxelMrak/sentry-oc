@@ -128,11 +128,23 @@ class OpenCodeMonitor(App):
         display: block;
     }
 
-    #detail-content {
-        background: #111111;
-        border: tall #333333;
+    #detail-layout {
+        layout: horizontal;
         height: 1fr;
-        padding: 1 2;
+    }
+
+    #detail-sidebar {
+        width: 35%;
+        min-width: 30;
+        background: #0a0a0a;
+        border: tall #333333;
+        margin-right: 1;
+        layout: vertical;
+    }
+
+    #detail-main {
+        width: 1fr;
+        layout: vertical;
     }
 
     #detail-title {
@@ -140,21 +152,24 @@ class OpenCodeMonitor(App):
         text-style: bold;
         padding: 0 1;
         margin-bottom: 0;
+        height: 1;
     }
 
-    TextArea {
-        background: #111111;
-        border: tall #333333;
-        height: 1fr;
+    .detail-section {
+        margin: 0 1;
     }
 
-    TextArea:focus {
-        border: tall #8b5cf6;
+    .detail-section-title {
+        color: #6b7280;
+        text-style: bold;
+        padding: 0 1;
+        margin-bottom: 0;
+        height: 1;
     }
 
-    .detail-line {
-        color: #e5e7eb;
+    .detail-field {
         padding: 0 2;
+        height: auto;
     }
 
     .detail-label {
@@ -165,16 +180,86 @@ class OpenCodeMonitor(App):
         color: #e5e7eb;
     }
 
-    .chat-user {
-        color: #22c55e;
-    }
-
-    .chat-assistant {
-        color: #8b5cf6;
-    }
-
-    .chat-system {
+    .detail-value-dim {
         color: #6b7280;
+    }
+
+    #detail-content {
+        background: #111111;
+        border: tall #333333;
+        height: 1fr;
+    }
+
+    #detail-chat {
+        background: #111111;
+        border: tall #333333;
+        height: 1fr;
+    }
+
+    #detail-logs {
+        background: #111111;
+        border: tall #333333;
+        height: 1fr;
+    }
+
+    TextArea {
+        background: #111111;
+        border: none;
+        height: 1fr;
+    }
+
+    .chat-message {
+        padding: 0 2;
+        margin: 0 1;
+    }
+
+    .chat-role-user {
+        color: #22c55e;
+        text-style: bold;
+    }
+
+    .chat-role-assistant {
+        color: #8b5cf6;
+        text-style: bold;
+    }
+
+    .chat-role-system {
+        color: #6b7280;
+        text-style: bold;
+    }
+
+    .chat-role-tool {
+        color: #eab308;
+        text-style: bold;
+    }
+
+    .chat-text {
+        color: #e5e7eb;
+    }
+
+    .chat-separator {
+        color: #1f2937;
+        height: 1;
+    }
+
+    .status-badge {
+        padding: 0 2;
+        height: 1;
+    }
+
+    .status-active {
+        color: #22c55e;
+        text-style: bold;
+    }
+
+    .status-recent {
+        color: #3b82f6;
+        text-style: bold;
+    }
+
+    .status-idle {
+        color: #eab308;
+        text-style: bold;
     }
 
     #credit-bar {
@@ -182,6 +267,14 @@ class OpenCodeMonitor(App):
         background: #000000;
         color: #4b5563;
         text-align: center;
+    }
+
+    .panel-header {
+        background: #1a1a1a;
+        color: #a78bfa;
+        text-style: bold;
+        padding: 0 2;
+        height: 1;
     }
     """
 
@@ -203,7 +296,13 @@ class OpenCodeMonitor(App):
                 yield Label(id="empty-state")
             with Vertical(id="detail-panel"):
                 yield Label(id="detail-title")
-                yield ScrollableContainer(id="detail-content")
+                with Horizontal(id="detail-layout"):
+                    with Vertical(id="detail-sidebar"):
+                        yield Label("SESSION INFO", classes="panel-header")
+                        yield ScrollableContainer(id="detail-info")
+                    with Vertical(id="detail-main"):
+                        yield Label("CONTENT", classes="panel-header")
+                        yield ScrollableContainer(id="detail-content")
             yield Label("Created by Axel Mrak — github.com/axelmrak", id="credit-bar")
         yield Footer()
 
@@ -286,6 +385,26 @@ class OpenCodeMonitor(App):
                 return active[table.cursor_row]
         return None
 
+    def _hide_list(self):
+        self.query_one("#sessions-panel").display = False
+        self.query_one("#detail-panel").add_class("visible")
+
+    def _show_list(self):
+        self.query_one("#sessions-panel").display = True
+        self.query_one("#detail-panel").remove_class("visible")
+        content = self.query_one("#detail-content", ScrollableContainer)
+        content.remove_children()
+        info = self.query_one("#detail-info", ScrollableContainer)
+        info.remove_children()
+
+    def _format_duration(self, ms):
+        if ms < 60000:
+            return f"{ms/1000:.0f}s"
+        elif ms < 3600000:
+            return f"{ms/60000:.1f}m"
+        else:
+            return f"{ms/3600000:.1f}h"
+
     def action_show_details(self) -> None:
         session = self.get_selected_session()
         if not session:
@@ -293,51 +412,66 @@ class OpenCodeMonitor(App):
 
         self.view_mode = "details"
         self.selected_session = session
-
-        panel = self.query_one("#detail-panel")
-        panel.add_class("visible")
-        self.query_one("#sessions-panel").display = False
+        self._hide_list()
 
         title = self.query_one("#detail-title", Label)
-        title.update(f"▸ Session Details — {session.get('title', 'Unknown')[:50]}")
+        title.update(f"▸ {session.get('title', 'Unknown')}")
 
-        content = self.query_one("#detail-content", ScrollableContainer)
-        content.remove_children()
+        info = self.query_one("#detail-info", ScrollableContainer)
+        info.remove_children()
 
         sid = session.get("id", "")
         created_ts = session.get("created", 0)
         updated_ts = session.get("updated", 0)
         directory = session.get("directory", "")
         project_id = session.get("projectId", "")
-
-        if created_ts:
-            created = datetime.fromtimestamp(created_ts / 1000).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            created = "N/A"
-
-        if updated_ts:
-            updated = datetime.fromtimestamp(updated_ts / 1000).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            updated = "N/A"
-
+        now = time.time() * 1000
         duration_ms = updated_ts - created_ts if updated_ts and created_ts else 0
-        duration_min = duration_ms / 60000
+        age_ms = now - updated_ts if updated_ts else 0
+
+        if age_ms < 60000:
+            status_style = "status-active"
+            status_text = "ACTIVE"
+        elif age_ms < 180000:
+            status_style = "status-recent"
+            status_text = "RECENT"
+        else:
+            status_style = "status-idle"
+            status_text = "IDLE"
+
+        status_label = Label()
+        status_label.update(f"[{status_style}]● {status_text}[/{status_style}]")
+        status_label.add_class("status-badge")
+        info.mount(status_label)
 
         fields = [
             ("ID", sid),
-            ("Title", session.get("title", "")),
             ("Project", directory),
-            ("Project ID", project_id),
-            ("Created", created),
-            ("Last Active", updated),
-            ("Duration", f"{duration_min:.1f} min"),
+            ("Created", datetime.fromtimestamp(created_ts / 1000).strftime("%H:%M:%S") if created_ts else "N/A"),
+            ("Last Active", datetime.fromtimestamp(updated_ts / 1000).strftime("%H:%M:%S") if updated_ts else "N/A"),
+            ("Duration", self._format_duration(duration_ms)),
         ]
 
         for label, value in fields:
             line = Label()
             line.update(f"[detail-label]{label}:[/detail-label] [detail-value]{value}[/detail-value]")
-            line.add_class("detail-line")
-            content.mount(line)
+            line.add_class("detail-field")
+            info.mount(line)
+
+        content = self.query_one("#detail-content", ScrollableContainer)
+        content.remove_children()
+
+        header = self.query_one("#detail-main").query_one(".panel-header", Label)
+        header.update("OVERVIEW")
+
+        overview = Label()
+        overview.update(
+            f"[detail-value]Session[/detail-value] [detail-value-dim]— {session.get('title', 'Unknown')}[/detail-value-dim]\n\n"
+            f"[detail-value]Working directory:[/detail-value] [detail-value-dim]{directory}[/detail-value-dim]\n\n"
+            f"[detail-value]Session age:[/detail-value] [detail-value-dim]{self._format_duration(age_ms)} ago[/detail-value-dim]"
+        )
+        overview.add_class("detail-field")
+        content.mount(overview)
 
     def action_show_chat(self) -> None:
         session = self.get_selected_session()
@@ -346,13 +480,16 @@ class OpenCodeMonitor(App):
 
         self.view_mode = "chat"
         self.selected_session = session
-
-        panel = self.query_one("#detail-panel")
-        panel.add_class("visible")
-        self.query_one("#sessions-panel").display = False
+        self._hide_list()
 
         title = self.query_one("#detail-title", Label)
-        title.update(f"▸ Chat Preview — {session.get('title', 'Unknown')[:50]}")
+        title.update(f"▸ {session.get('title', 'Unknown')}")
+
+        info = self.query_one("#detail-info", ScrollableContainer)
+        info.remove_children()
+
+        header = self.query_one("#detail-main").query_one(".panel-header", Label)
+        header.update("CHAT HISTORY")
 
         content = self.query_one("#detail-content", ScrollableContainer)
         content.remove_children()
@@ -365,7 +502,13 @@ class OpenCodeMonitor(App):
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 messages = data.get("messages", [])
-                for msg in messages[-30:]:
+                total = len(messages)
+                count_label = Label()
+                count_label.update(f"[detail-value-dim]Showing last 50 of {total} messages[/detail-value-dim]")
+                count_label.add_class("detail-field")
+                content.mount(count_label)
+
+                for msg in messages[-50:]:
                     role = msg.get("role", "unknown")
                     content_text = ""
                     if isinstance(msg.get("content"), str):
@@ -377,33 +520,37 @@ class OpenCodeMonitor(App):
                                 parts.append(p.get("text", ""))
                         content_text = "\n".join(parts)
 
-                    if len(content_text) > 200:
-                        content_text = content_text[:200] + "..."
+                    if len(content_text) > 300:
+                        content_text = content_text[:300] + "..."
 
-                    role_color = "chat-user" if role == "user" else ("chat-assistant" if role == "assistant" else "chat-system")
+                    role_color = {
+                        "user": "chat-role-user",
+                        "assistant": "chat-role-assistant",
+                        "system": "chat-role-system",
+                        "tool": "chat-role-tool",
+                    }.get(role, "chat-role-system")
+
                     role_label = Label()
                     role_label.update(f"[{role_color}]{role.upper()}[/{role_color}]")
-                    role_label.add_class("detail-line")
+                    role_label.add_class("chat-message")
                     content.mount(role_label)
 
                     msg_label = Label()
                     msg_label.update(content_text)
-                    msg_label.add_class("detail-line")
+                    msg_label.add_class("chat-text")
+                    msg_label.add_class("chat-message")
                     content.mount(msg_label)
 
-                    sep = Label("─" * 60)
-                    sep.styles.color = "#333333"
-                    sep.styles.padding = "0 2"
+                    sep = Label("─" * 80)
+                    sep.add_class("chat-separator")
                     content.mount(sep)
             else:
-                msg = Label(f"Failed to load chat: {result.stderr[:100]}")
-                msg.styles.color = "#ef4444"
-                msg.add_class("detail-line")
+                msg = Label(f"[detail-value]Failed to load chat[/detail-value]")
+                msg.add_class("detail-field")
                 content.mount(msg)
         except Exception as e:
-            msg = Label(f"Error: {str(e)}")
-            msg.styles.color = "#ef4444"
-            msg.add_class("detail-line")
+            msg = Label(f"[detail-value]Error: {str(e)}[/detail-value]")
+            msg.add_class("detail-field")
             content.mount(msg)
 
     def action_show_logs(self) -> None:
@@ -413,13 +560,16 @@ class OpenCodeMonitor(App):
 
         self.view_mode = "logs"
         self.selected_session = session
-
-        panel = self.query_one("#detail-panel")
-        panel.add_class("visible")
-        self.query_one("#sessions-panel").display = False
+        self._hide_list()
 
         title = self.query_one("#detail-title", Label)
-        title.update(f"▸ Session Logs — {session.get('title', 'Unknown')[:50]}")
+        title.update(f"▸ {session.get('title', 'Unknown')}")
+
+        info = self.query_one("#detail-info", ScrollableContainer)
+        info.remove_children()
+
+        header = self.query_one("#detail-main").query_one(".panel-header", Label)
+        header.update("LOGS")
 
         content = self.query_one("#detail-content", ScrollableContainer)
         content.remove_children()
@@ -430,16 +580,15 @@ class OpenCodeMonitor(App):
                 capture_output=True, text=True, timeout=10
             )
             log_text = result.stderr if result.stderr else "No logs available for this session."
-            if len(log_text) > 5000:
-                log_text = log_text[-5000:]
+            if len(log_text) > 10000:
+                log_text = log_text[-10000:]
 
             textarea = TextArea(log_text, language="log", read_only=True)
             textarea.show_line_numbers = False
             content.mount(textarea)
         except Exception as e:
-            msg = Label(f"Error loading logs: {str(e)}")
-            msg.styles.color = "#ef4444"
-            msg.add_class("detail-line")
+            msg = Label(f"[detail-value]Error loading logs: {str(e)}[/detail-value]")
+            msg.add_class("detail-field")
             content.mount(msg)
 
     def action_open_session(self) -> None:
@@ -447,9 +596,9 @@ class OpenCodeMonitor(App):
         if not session:
             return
 
-        self.exit()
         sid = session.get("id", "")
         subprocess.Popen(["opencode", sid])
+        self.call_later(self.exit)
 
     def action_refresh(self) -> None:
         self.refresh_data()
@@ -458,11 +607,7 @@ class OpenCodeMonitor(App):
         if self.view_mode != "list":
             self.view_mode = "list"
             self.selected_session = None
-            panel = self.query_one("#detail-panel")
-            panel.remove_class("visible")
-            self.query_one("#sessions-panel").display = True
-            content = self.query_one("#detail-content", ScrollableContainer)
-            content.remove_children()
+            self._show_list()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_show_details()
