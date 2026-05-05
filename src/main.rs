@@ -16,11 +16,25 @@ use ratatui::{
 use serde::Deserialize;
 use std::{
     collections::HashMap,
+    env,
     io,
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
+
+fn opencode_cmd() -> Command {
+    let mut cmd = Command::new("opencode");
+    let current_path = env::var("PATH").unwrap_or_default();
+    let homebrew = "/opt/homebrew/bin:/opt/homebrew/sbin";
+    let new_path = if current_path.contains("homebrew") {
+        current_path
+    } else {
+        format!("{}:{}", homebrew, current_path)
+    };
+    cmd.env("PATH", new_path);
+    cmd
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(non_snake_case)]
@@ -145,7 +159,7 @@ impl App {
     }
 
     fn refresh_sessions(&mut self) {
-        let output = Command::new("opencode")
+        let output = opencode_cmd()
             .args(["session", "list", "--format", "json", "-n", "50"])
             .output();
 
@@ -219,7 +233,7 @@ impl App {
             return;
         }
 
-        let output = Command::new("opencode")
+        let output = opencode_cmd()
             .args(["export", session_id])
             .current_dir(dir)
             .output();
@@ -289,7 +303,7 @@ impl App {
             return;
         }
 
-        let output = Command::new("opencode")
+        let output = opencode_cmd()
             .args(["session", "list", "--format", "json", "--print-logs", "-n", "1"])
             .output();
 
@@ -323,7 +337,7 @@ impl App {
 
     fn open_session(&self) {
         if let Some(session) = self.selected_session() {
-            let _ = Command::new("opencode").arg(&session.id).spawn();
+            let _ = opencode_cmd().arg(&session.id).spawn();
         }
     }
 
