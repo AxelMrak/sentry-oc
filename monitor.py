@@ -336,7 +336,7 @@ class OpenCodeMonitor(App):
         table.clear()
 
         now = time.time() * 1000
-        active_sessions = [s for s in self.sessions if (now - s.get("updated", 0)) < 300000]
+        active_sessions = [s for s in self.sessions if (now - s.get("updated", 0)) < 86400000]
 
         if not active_sessions:
             empty.update("No active sessions in the last 5 minutes")
@@ -380,7 +380,7 @@ class OpenCodeMonitor(App):
         table = self.query_one("#sessions-table", DataTable)
         if table.cursor_row is not None and table.cursor_row < len(self.sessions):
             now = time.time() * 1000
-            active = [s for s in self.sessions if (now - s.get("updated", 0)) < 300000]
+            active = [s for s in self.sessions if (now - s.get("updated", 0)) < 86400000]
             if table.cursor_row < len(active):
                 return active[table.cursor_row]
         return None
@@ -497,10 +497,15 @@ class OpenCodeMonitor(App):
         try:
             result = subprocess.run(
                 ["opencode", "export", session.get("id", "")],
-                capture_output=True, text=True, timeout=15
+                capture_output=True, text=True, timeout=30,
+                cwd=session.get("directory", os.path.expanduser("~"))
             )
             if result.returncode == 0:
-                data = json.loads(result.stdout)
+                raw = result.stdout
+                brace_idx = raw.find("{")
+                if brace_idx > 0:
+                    raw = raw[brace_idx:]
+                data = json.loads(raw)
                 messages = data.get("messages", [])
                 total = len(messages)
                 count_label = Label()
@@ -509,16 +514,23 @@ class OpenCodeMonitor(App):
                 content.mount(count_label)
 
                 for msg in messages[-50:]:
-                    role = msg.get("role", "unknown")
-                    content_text = ""
-                    if isinstance(msg.get("content"), str):
-                        content_text = msg["content"]
-                    elif isinstance(msg.get("content"), list):
-                        parts = []
-                        for p in msg["content"]:
-                            if isinstance(p, dict) and p.get("type") == "text":
-                                parts.append(p.get("text", ""))
-                        content_text = "\n".join(parts)
+                    info = msg.get("info", {})
+                    role = info.get("role", "unknown")
+                    parts = msg.get("parts", [])
+
+                    text_parts = []
+                    for p in parts:
+                        if isinstance(p, dict):
+                            ptype = p.get("type", "")
+                            if ptype == "text":
+                                text_parts.append(p.get("text", ""))
+                            elif ptype == "tool-call":
+                                tool = p.get("toolName", p.get("tool", "?"))
+                                text_parts.append(f"[tool:{tool}]")
+                            elif ptype == "tool-result":
+                                text_parts.append("[tool:result]")
+
+                    content_text = "\n".join(text_parts) if text_parts else f"[{role}: no text content]"
 
                     if len(content_text) > 300:
                         content_text = content_text[:300] + "..."
@@ -548,6 +560,10 @@ class OpenCodeMonitor(App):
                 msg = Label(f"[detail-value]Failed to load chat[/detail-value]")
                 msg.add_class("detail-field")
                 content.mount(msg)
+        except json.JSONDecodeError as e:
+            msg = Label(f"[detail-value]JSON parse error: {str(e)[:80]}[/detail-value]")
+            msg.add_class("detail-field")
+            content.mount(msg)
         except Exception as e:
             msg = Label(f"[detail-value]Error: {str(e)}[/detail-value]")
             msg.add_class("detail-field")
